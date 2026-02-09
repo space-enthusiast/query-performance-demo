@@ -1,3 +1,22 @@
 spring:
   application:
     name: query-performance-demo
+  datasource:
+    url: jdbc:postgresql://localhost:5432/query_performance_demo?reWriteBatchedInserts=true
+    username: kimjung
+    password:
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+  jpa:
+    hibernate:
+      ddl-auto: create
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          batch_size: 1000
+        order_inserts: true
+        order_updates: true
