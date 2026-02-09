@@ -219,6 +219,12 @@ Test tool: Locust
 | Fast Only (2ms query) | 500 | 56,575 | **0%** | 11ms | 945 |
 | Slow Only (2.5s query) | 100 | 4,178 | **98.56%** | 637ms | 1.6 |
 
+#### Fast Query (2ms) - Stable at 500 users
+![Fast Query Load Test](doc/fast_query_locust_test.png)
+
+#### Slow Query (2.5s) - Crashed at 100 users
+![Slow Query Load Test](doc/slow_query_locust_test.png)
+
 ### What Happened with Slow Queries?
 
 With only **100 concurrent users** hitting the slow endpoint:
