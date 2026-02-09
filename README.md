@@ -79,31 +79,21 @@ ORDER BY id
 LIMIT 100 OFFSET 0;
 ```
 
-### Scenario 3: UNION ALL + Indexes
+### Scenario 3: LEFT JOIN + GROUP BY + Indexes
 
 Uses `_2` tables with indexes:
 
 ```sql
-SELECT dg.id, dg.state FROM distribution_group_2 dg
+SELECT dg.id, dg.state
+FROM distribution_group_2 dg
 JOIN distribution_group_matching_2 dgm ON dgm.distribution_group_id = dg.id
-JOIN skill_2 s ON dgm.type = 'SKILL_CODE' AND dgm.pointer = s.code
+LEFT JOIN skill_2 s ON dgm.type = 'SKILL_CODE' AND dgm.pointer = s.code
+LEFT JOIN account_2 a ON dgm.type = 'ACCOUNT_ID' AND dgm.pointer = CAST(a.id AS TEXT)
+LEFT JOIN account_group_2 ag ON dgm.type = 'ACCOUNT_GROUP_ID' AND dgm.pointer = CAST(ag.id AS TEXT)
 WHERE dg.state = 'WAITING'
-
-UNION ALL
-
-SELECT dg.id, dg.state FROM distribution_group_2 dg
-JOIN distribution_group_matching_2 dgm ON dgm.distribution_group_id = dg.id
-JOIN account_2 a ON dgm.type = 'ACCOUNT_ID' AND dgm.pointer = CAST(a.id AS TEXT)
-WHERE dg.state = 'WAITING'
-
-UNION ALL
-
-SELECT dg.id, dg.state FROM distribution_group_2 dg
-JOIN distribution_group_matching_2 dgm ON dgm.distribution_group_id = dg.id
-JOIN account_group_2 ag ON dgm.type = 'ACCOUNT_GROUP_ID' AND dgm.pointer = CAST(ag.id AS TEXT)
-WHERE dg.state = 'WAITING'
-
-ORDER BY id
+  AND (s.id IS NOT NULL OR a.id IS NOT NULL OR ag.id IS NOT NULL)
+GROUP BY dg.id, dg.state
+ORDER BY dg.id
 LIMIT 100 OFFSET 0;
 ```
 
@@ -111,17 +101,19 @@ LIMIT 100 OFFSET 0;
 
 | Scenario | Avg Time | Description |
 |----------|----------|-------------|
-| Scenario 1: LEFT JOIN + GROUP BY | ~420 ms | No indexes |
-| Scenario 2: UNION ALL | ~2,600 ms | No indexes |
-| Scenario 3: UNION ALL + Index | ~2,800 ms | With indexes |
+| Scenario 1: LEFT JOIN + GROUP BY | ~343 ms | No indexes |
+| Scenario 2: UNION ALL | ~2,414 ms | No indexes |
+| Scenario 3: LEFT JOIN + GROUP BY + Index | ~1.7 ms | With indexes |
 
-**Key Finding**: At 5M records scale, LEFT JOIN + GROUP BY is **~6x faster** than UNION ALL approaches.
+**Key Findings**:
+- LEFT JOIN + GROUP BY is **~7x faster** than UNION ALL (without indexes)
+- Adding indexes to LEFT JOIN + GROUP BY provides **~201x improvement** (343 ms → 1.7 ms)
 
 ![Query Performance Chart](build/query-performance-chart.png)
 
 ## EXPLAIN ANALYZE Results
 
-### Scenario 1: LEFT JOIN + GROUP BY (~420 ms avg)
+### Scenario 1: LEFT JOIN + GROUP BY (~343 ms avg)
 
 ```
 Limit (actual time=66..71 ms, rows=100)
@@ -140,7 +132,7 @@ Key points:
 - `Nested Loop Left Join`: Small tables (100 accounts, 20 groups, 50 skills) - fast
 - `Limit` pushed down: Stops early after finding 100 rows
 
-### Scenario 2: UNION ALL (~2,600 ms avg)
+### Scenario 2: UNION ALL (~2,414 ms avg)
 
 ```
 Limit (actual time=501..508 ms, rows=100)
@@ -159,30 +151,56 @@ Key points:
 - `Sort` after append: Must collect all 1M rows before sorting
 - `Limit` NOT pushed down: Can't limit until after UNION ALL + ORDER BY
 
+### Scenario 3: LEFT JOIN + GROUP BY + Index (~1.7 ms avg)
+
+```
+Limit (actual time=0.5..0.8 ms, rows=100)
+  -> Group (rows=100)
+       -> Nested Loop Left Join (account_group_2)
+             -> Nested Loop Left Join (account_2)
+                   -> Nested Loop Left Join (skill_2)
+                         -> Merge Join (dg + dgm)
+                               +-- Index Scan (dgm) <- Uses idx_dgm2_dg_id_type_pointer
+                               +-- Index Scan (dg) <- Uses idx_dg2_state_id
+```
+
+Key points:
+- `idx_dg2_state_id`: Composite index on (state, id) enables efficient filtering + ordering
+- `idx_dgm2_dg_id_type_pointer`: Covers all join conditions, eliminates sequential scans
+- `idx_skill2_code`: Enables index lookup instead of scan for skill matching
+- All operations use indexes: No sequential scans needed
+
 ## Key Differences
 
-| Factor | Scenario 1 (LEFT JOIN) | Scenario 2/3 (UNION ALL) |
-|--------|------------------------|--------------------------|
-| Table scans | 1x each table | 3x distribution_group, 3x matching |
-| Can use LIMIT early | Yes | No (must sort first) |
-| Parallelism | Limited | Good |
-| Index usage | Uses PK index | Hash joins (indexes don't help much) |
+| Factor | Scenario 1 (LEFT JOIN) | Scenario 2 (UNION ALL) | Scenario 3 (LEFT JOIN + Index) |
+|--------|------------------------|------------------------|--------------------------------|
+| Table scans | 1x each table | 3x distribution_group, 3x matching | 0 (all index scans) |
+| Can use LIMIT early | Yes | No (must sort first) | Yes |
+| Parallelism | Limited | Good | Not needed |
+| Index usage | Uses PK index only | Hash joins | Full composite indexes |
+| Avg Time | ~343 ms | ~2,414 ms | ~1.7 ms |
 
-## Why LEFT JOIN Scales Better
+## Why LEFT JOIN + Index is Fastest
 
-**At 5M rows**, LEFT JOIN + GROUP BY is ~6x faster because:
+**At 5M rows**, LEFT JOIN + GROUP BY + Index is ~201x faster than without indexes because:
 
-1. **Early LIMIT pushdown**: Stops after finding 100 rows
-2. **Single table scan**: Each table scanned once vs 3x for UNION ALL
-3. **Merge Join efficiency**: Sorted data from indexes enables efficient joining
-4. **No post-sort required**: Results already ordered by primary key
+1. **Composite indexes**: `idx_dg2_state_id(state, id)` covers both WHERE and ORDER BY
+2. **Covering index for joins**: `idx_dgm2_dg_id_type_pointer` eliminates table lookups
+3. **Index-only scans**: All required data retrieved from indexes
+4. **Early LIMIT pushdown**: Stops after finding 100 rows with minimal I/O
 
-**UNION ALL limitations at scale**:
-- Must scan `distribution_group` 3 times (15M row reads total)
-- Must scan `distribution_group_matching` 3 times with filters
-- Cannot apply LIMIT until after collecting all results + sorting
-- Indexes on `_2` tables provide minimal benefit due to UNION structure
+**LEFT JOIN vs UNION ALL** (without indexes):
+- LEFT JOIN is ~7x faster (343 ms vs 2,414 ms)
+- Single table scan vs 3x scans for UNION ALL
+- LIMIT can be applied early vs must sort all results first
+
+**Impact of Indexes**:
+- LEFT JOIN: 343 ms → 1.7 ms (**201x improvement**)
+- Proper indexing provides orders of magnitude improvement
 
 ## Conclusion
 
-For paginated queries with `ORDER BY ... LIMIT ... OFFSET`, LEFT JOIN + GROUP BY outperforms UNION ALL at larger data scales due to early termination capabilities and reduced I/O.
+For paginated queries with `ORDER BY ... LIMIT ... OFFSET`:
+1. **LEFT JOIN + GROUP BY** is the better query strategy (vs UNION ALL)
+2. **Proper indexes** provide the biggest performance gain (~200x improvement)
+3. The combination of good query structure + indexes achieves sub-2ms response times on 5M records
