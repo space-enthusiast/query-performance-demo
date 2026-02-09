@@ -171,3 +171,95 @@ class DistributionGroupMatching(
     @Column(nullable = false)
     val type: MatchingType
 )
+
+// ============================================================================
+// Set 2: Tables with indexes (_2 suffix)
+// ============================================================================
+
+@Entity
+@Table(name = "account_2")
+class Account2(
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    val id: Long? = null,
+
+    @Column(nullable = false)
+    val name: String
+)
+
+@Entity
+@Table(name = "account_group_2")
+class AccountGroup2(
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    val id: Long? = null,
+
+    @Column(nullable = false)
+    val name: String
+)
+
+@Entity
+@Table(
+    name = "skill_2",
+    indexes = [
+        Index(name = "idx_skill2_code", columnList = "code")
+    ]
+)
+class Skill2(
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    val id: Long? = null,
+
+    @Column(nullable = false, unique = true)
+    val code: String,
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "translation_type", nullable = false)
+    val translationType: TranslationType,
+
+    @Column(name = "source_language", nullable = false)
+    val sourceLanguage: String,
+
+    @Column(name = "target_language", nullable = false)
+    val targetLanguage: String
+)
+
+@Entity
+@Table(
+    name = "distribution_group_2",
+    indexes = [
+        Index(name = "idx_dg2_state_id", columnList = "state, id")
+    ]
+)
+class DistributionGroup2(
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    val id: Long? = null,
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    val state: DistributionGroupState
+)
+
+@Entity
+@Table(
+    name = "distribution_group_matching_2",
+    indexes = [
+        Index(name = "idx_dgm2_dg_id_type_pointer", columnList = "distribution_group_id, type, pointer")
+    ]
+)
+class DistributionGroupMatching2(
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    val id: Long? = null,
+
+    @Column(name = "distribution_group_id", nullable = false)
+    val distributionGroupId: Long,
+
+    @Column(nullable = false)
+    val pointer: String,
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    val type: MatchingType
+)

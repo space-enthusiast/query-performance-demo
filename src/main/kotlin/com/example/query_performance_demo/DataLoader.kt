@@ -14,8 +14,8 @@ class DataLoader(
         const val ACCOUNT_COUNT = 100
         const val ACCOUNT_GROUP_COUNT = 20
         const val SKILL_COUNT = 50
-        const val DG_COUNT = 1_000_000
-        const val TASK_COUNT = 1_000_000
+        const val DG_COUNT = 5_000_000
+        const val TASK_COUNT = 5_000_000
         const val BATCH_SIZE = 10_000
     }
 
@@ -31,6 +31,7 @@ class DataLoader(
         // Clear all tables first (in correct order due to foreign keys)
         println("Clearing existing data...")
         jdbcTemplate.execute("TRUNCATE TABLE distribution_group_matching, distribution_group_task, distribution_group, task, account_skill, account_to_account_group, skill, account_group, account RESTART IDENTITY CASCADE")
+        jdbcTemplate.execute("TRUNCATE TABLE distribution_group_matching_2, distribution_group_2, skill_2, account_group_2, account_2 RESTART IDENTITY CASCADE")
 
         // 1. Create accounts
         println("Creating $ACCOUNT_COUNT accounts...")
@@ -67,6 +68,33 @@ class DataLoader(
         // 9. Create distribution group matchings (link to account_id, account_group_id, skill_code)
         println("Creating distribution group matchings...")
         createDistributionGroupMatchings()
+
+        // ========== Set 2: Tables with indexes (_2 suffix) ==========
+        println("\n--- Creating Set 2 tables (with indexes) ---")
+
+        // 10. Copy accounts to account_2
+        println("Creating $ACCOUNT_COUNT accounts in account_2...")
+        createAccounts2()
+
+        // 11. Copy account groups to account_group_2
+        println("Creating $ACCOUNT_GROUP_COUNT account groups in account_group_2...")
+        createAccountGroups2()
+
+        // 12. Copy skills to skill_2
+        println("Creating $SKILL_COUNT skills in skill_2...")
+        createSkills2()
+
+        // 13. Create distribution groups in distribution_group_2
+        println("Creating $DG_COUNT distribution groups in distribution_group_2...")
+        createDistributionGroups2()
+
+        // 14. Create distribution group matchings in distribution_group_matching_2
+        println("Creating distribution group matchings in distribution_group_matching_2...")
+        createDistributionGroupMatchings2()
+
+        // Update statistics for query optimizer
+        println("Running ANALYZE...")
+        jdbcTemplate.execute("ANALYZE")
 
         val elapsed = (System.currentTimeMillis() - startTime) / 1000.0
         println("Data load completed in $elapsed seconds")
@@ -218,6 +246,86 @@ class DataLoader(
 
             if ((batch + 1) % 10 == 0) {
                 println("  Created ${(batch + 1) * BATCH_SIZE} distribution group matchings...")
+            }
+        }
+    }
+
+    // ========== Set 2: Tables with indexes (_2 suffix) ==========
+
+    private fun createAccounts2() {
+        val sql = "INSERT INTO account_2 (name) VALUES (?)"
+        jdbcTemplate.batchUpdate(sql, (1..ACCOUNT_COUNT).map { arrayOf("Account_$it") })
+    }
+
+    private fun createAccountGroups2() {
+        val sql = "INSERT INTO account_group_2 (name) VALUES (?)"
+        jdbcTemplate.batchUpdate(sql, (1..ACCOUNT_GROUP_COUNT).map { arrayOf("Group_$it") })
+    }
+
+    private fun createSkills2() {
+        val sql = "INSERT INTO skill_2 (code, translation_type, source_language, target_language) VALUES (?, ?, ?, ?)"
+        val languages = listOf("EN", "KO", "JA", "ZH", "ES", "FR", "DE", "PT", "IT", "RU")
+
+        val skills = mutableListOf<Array<Any>>()
+        var skillNum = 1
+        for (source in languages) {
+            for (target in languages) {
+                if (source != target && skillNum <= SKILL_COUNT) {
+                    skills.add(arrayOf("SKILL_${source}_${target}", "SUBTITLE", source, target))
+                    skillNum++
+                }
+            }
+        }
+
+        jdbcTemplate.batchUpdate(sql, skills)
+    }
+
+    private fun createDistributionGroups2() {
+        val sql = "INSERT INTO distribution_group_2 (state) VALUES (?)"
+
+        for (batch in 0 until DG_COUNT / BATCH_SIZE) {
+            val values = (1..BATCH_SIZE).map { arrayOf<Any>("WAITING") }
+            jdbcTemplate.batchUpdate(sql, values)
+
+            if ((batch + 1) % 10 == 0) {
+                println("  Created ${(batch + 1) * BATCH_SIZE} distribution groups in distribution_group_2...")
+            }
+        }
+    }
+
+    private fun createDistributionGroupMatchings2() {
+        val sql = "INSERT INTO distribution_group_matching_2 (distribution_group_id, pointer, type) VALUES (?, ?, ?)"
+
+        // Get skill codes for reference
+        val skillCodes = jdbcTemplate.queryForList("SELECT code FROM skill_2").map { it["code"] as String }
+
+        for (batch in 0 until DG_COUNT / BATCH_SIZE) {
+            val startId = batch * BATCH_SIZE + 1
+            val values = (0 until BATCH_SIZE).map { i ->
+                val dgId = startId + i
+                val matchType = when ((dgId % 3).toInt()) {
+                    0 -> {
+                        // ACCOUNT_ID matching
+                        val accountId = ((dgId % ACCOUNT_COUNT) + 1)
+                        arrayOf<Any>(dgId, accountId.toString(), "ACCOUNT_ID")
+                    }
+                    1 -> {
+                        // ACCOUNT_GROUP_ID matching
+                        val groupId = ((dgId % ACCOUNT_GROUP_COUNT) + 1)
+                        arrayOf<Any>(dgId, groupId.toString(), "ACCOUNT_GROUP_ID")
+                    }
+                    else -> {
+                        // SKILL_CODE matching
+                        val skillCode = skillCodes[(dgId % skillCodes.size).toInt()]
+                        arrayOf<Any>(dgId, skillCode, "SKILL_CODE")
+                    }
+                }
+                matchType
+            }
+            jdbcTemplate.batchUpdate(sql, values)
+
+            if ((batch + 1) % 10 == 0) {
+                println("  Created ${(batch + 1) * BATCH_SIZE} distribution group matchings in distribution_group_matching_2...")
             }
         }
     }
