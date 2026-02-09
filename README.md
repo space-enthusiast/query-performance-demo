@@ -109,8 +109,6 @@ LIMIT 100 OFFSET 0;
 - LEFT JOIN + GROUP BY is **~7x faster** than UNION ALL (without indexes)
 - Adding indexes to LEFT JOIN + GROUP BY provides **~199x improvement** (358 ms → 1.8 ms)
 
-![Query Performance Chart](build/query-performance-chart.png)
-
 ## EXPLAIN ANALYZE Results
 
 ### Scenario 1: LEFT JOIN + GROUP BY (~358 ms avg)
