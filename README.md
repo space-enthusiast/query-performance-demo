@@ -9,7 +9,7 @@ Demo project for query performance analysis comparing LEFT JOIN vs UNION ALL str
 psql -d postgres -c "CREATE DATABASE query_performance_demo;"
 ```
 
-2. Run the application (auto-creates tables and loads 1M test records):
+2. Run the application (auto-creates tables and loads 5M test records):
 ```bash
 ./gradlew bootRun
 ```
@@ -23,9 +23,9 @@ psql -d postgres -c "CREATE DATABASE query_performance_demo;"
 
 | Table | Count |
 |-------|-------|
-| distribution_group / distribution_group_2 | 1,000,000 |
-| distribution_group_matching / distribution_group_matching_2 | 1,000,000 |
-| task | 1,000,000 |
+| distribution_group / distribution_group_2 | 5,000,000 |
+| distribution_group_matching / distribution_group_matching_2 | 5,000,000 |
+| task | 5,000,000 |
 | account / account_2 | 100 |
 | account_group / account_group_2 | 20 |
 | skill / skill_2 | 50 |
@@ -97,23 +97,23 @@ ORDER BY dg.id
 LIMIT 100 OFFSET 0;
 ```
 
-## Performance Results (1M Records)
+## Performance Results (5M Records)
 
 | Scenario | Avg Time | Description |
 |----------|----------|-------------|
-| Scenario 1: LEFT JOIN + GROUP BY | ~66 ms | No indexes |
-| Scenario 2: UNION ALL | ~449 ms | No indexes |
+| Scenario 1: LEFT JOIN + GROUP BY | ~358 ms | No indexes |
+| Scenario 2: UNION ALL | ~2,543 ms | No indexes |
 | Scenario 3: LEFT JOIN + GROUP BY + Index | ~1.8 ms | With indexes |
 
 **Key Findings**:
 - LEFT JOIN + GROUP BY is **~7x faster** than UNION ALL (without indexes)
-- Adding indexes to LEFT JOIN + GROUP BY provides **~37x improvement** (66 ms → 1.8 ms)
+- Adding indexes to LEFT JOIN + GROUP BY provides **~199x improvement** (358 ms → 1.8 ms)
 
 ![Query Performance Chart](build/query-performance-chart.png)
 
 ## EXPLAIN ANALYZE Results
 
-### Scenario 1: LEFT JOIN + GROUP BY (~66 ms avg)
+### Scenario 1: LEFT JOIN + GROUP BY (~358 ms avg)
 
 ```
 Limit (actual time=66..71 ms, rows=100)
@@ -132,7 +132,7 @@ Key points:
 - `Nested Loop Left Join`: Small tables (100 accounts, 20 groups, 50 skills) - fast
 - `Limit` pushed down: Stops early after finding 100 rows
 
-### Scenario 2: UNION ALL (~449 ms avg)
+### Scenario 2: UNION ALL (~2,543 ms avg)
 
 ```
 Limit (actual time=501..508 ms, rows=100)
@@ -148,7 +148,7 @@ Key points:
 - `Parallel Seq Scan on distribution_group`: Scans 3 times (once per sub-query)
 - `Parallel Seq Scan on distribution_group_matching`: Scans 3 times with filter
 - `Rows Removed by Filter: 666667`: Each sub-query filters 2/3 of matching table
-- `Sort` after append: Must collect all 1M rows before sorting
+- `Sort` after append: Must collect all 5M rows before sorting
 - `Limit` NOT pushed down: Can't limit until after UNION ALL + ORDER BY
 
 ### Scenario 3: LEFT JOIN + GROUP BY + Index (~1.8 ms avg)
@@ -178,11 +178,11 @@ Key points:
 | Can use LIMIT early | Yes | No (must sort first) | Yes |
 | Parallelism | Limited | Good | Not needed |
 | Index usage | Uses PK index only | Hash joins | Full composite indexes |
-| Avg Time | ~66 ms | ~449 ms | ~1.8 ms |
+| Avg Time | ~358 ms | ~2,543 ms | ~1.8 ms |
 
 ## Why LEFT JOIN + Index is Fastest
 
-**At 1M rows**, LEFT JOIN + GROUP BY + Index is ~37x faster than without indexes because:
+**At 5M rows**, LEFT JOIN + GROUP BY + Index is ~199x faster than without indexes because:
 
 1. **Composite indexes**: `idx_dg2_state_id(state, id)` covers both WHERE and ORDER BY
 2. **Covering index for joins**: `idx_dgm2_dg_id_type_pointer` eliminates table lookups
@@ -190,17 +190,17 @@ Key points:
 4. **Early LIMIT pushdown**: Stops after finding 100 rows with minimal I/O
 
 **LEFT JOIN vs UNION ALL** (without indexes):
-- LEFT JOIN is ~7x faster (66 ms vs 449 ms)
+- LEFT JOIN is ~7x faster (358 ms vs 2,543 ms)
 - Single table scan vs 3x scans for UNION ALL
 - LIMIT can be applied early vs must sort all results first
 
 **Impact of Indexes**:
-- LEFT JOIN: 66 ms → 1.8 ms (**37x improvement**)
-- Proper indexing provides significant improvement
+- LEFT JOIN: 358 ms → 1.8 ms (**199x improvement**)
+- Proper indexing provides orders of magnitude improvement
 
 ## Conclusion
 
 For paginated queries with `ORDER BY ... LIMIT ... OFFSET`:
 1. **LEFT JOIN + GROUP BY** is the better query strategy (vs UNION ALL)
-2. **Proper indexes** provide significant performance gain (~37x improvement)
-3. The combination of good query structure + indexes achieves sub-2ms response times on 1M records
+2. **Proper indexes** provide the biggest performance gain (~199x improvement)
+3. The combination of good query structure + indexes achieves sub-2ms response times on 5M records

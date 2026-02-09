@@ -4,7 +4,7 @@
 
 ### Completed Work
 
-Implemented Query Performance Optimization plan comparing 3 scenarios with 1M records:
+Implemented Query Performance Optimization plan comparing 3 scenarios with 5M records:
 
 1. **Entities.kt** - Created two table sets:
    - Original tables (no indexes): `account`, `account_group`, `skill`, `distribution_group`, `distribution_group_matching`
@@ -12,20 +12,20 @@ Implemented Query Performance Optimization plan comparing 3 scenarios with 1M re
    - Indexes added: `idx_skill2_code`, `idx_dg2_state_id`, `idx_dgm2_dg_id_type_pointer`
 
 2. **DataLoader.kt** - Updated for 5M records:
-   - `DG_COUNT = 1,000,000`
-   - `TASK_COUNT = 1,000,000`
+   - `DG_COUNT = 5,000,000`
+   - `TASK_COUNT = 5,000,000`
    - Added data loading for both table sets
 
 3. **QueryPerformanceTest.kt** - 3 test scenarios:
-   - Scenario 1: LEFT JOIN + GROUP BY (No indexes) - ~66 ms
-   - Scenario 2: UNION ALL (No indexes) - ~449 ms
+   - Scenario 1: LEFT JOIN + GROUP BY (No indexes) - ~358 ms
+   - Scenario 2: UNION ALL (No indexes) - ~2,543 ms
    - Scenario 3: LEFT JOIN + GROUP BY + Index (_2 tables) - ~1.8 ms
 
 ### Execution Results
-- Data loading: ~49 seconds for 1M records
-- Test execution: ~1 minute
+- Data loading: ~240 seconds for 5M records
+- Test execution: ~5 minutes
 - Chart generated: `build/query-performance-chart.png`
-- Key finding: Indexes provide **~37x improvement** for LEFT JOIN strategy
+- Key finding: Indexes provide **~199x improvement** for LEFT JOIN strategy
 
 ### Commands
 ```bash

@@ -14,8 +14,8 @@ class DataLoader(
         const val ACCOUNT_COUNT = 100
         const val ACCOUNT_GROUP_COUNT = 20
         const val SKILL_COUNT = 50
-        const val DG_COUNT = 1_000_000
-        const val TASK_COUNT = 1_000_000
+        const val DG_COUNT = 5_000_000
+        const val TASK_COUNT = 5_000_000
         const val BATCH_SIZE = 10_000
     }
 
