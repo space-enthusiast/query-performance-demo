@@ -1,1 +1,147 @@
-demo project for query performance analyze
+# Query Performance Demo
+
+Demo project for query performance analysis comparing LEFT JOIN vs UNION ALL strategies.
+
+## Setup
+
+1. Create PostgreSQL database:
+```bash
+psql -d postgres -c "CREATE DATABASE query_performance_demo;"
+```
+
+2. Run the application (auto-creates tables and loads 1M test records):
+```bash
+./gradlew bootRun
+```
+
+3. Run performance tests:
+```bash
+./gradlew test --tests "QueryPerformanceTest" --info
+```
+
+## Test Data
+
+| Table | Count |
+|-------|-------|
+| distribution_group | 1,000,000 |
+| distribution_group_matching | 1,000,000 |
+| task | 1,000,000 |
+| account | 100 |
+| account_group | 20 |
+| skill | 50 |
+
+## Query Comparison
+
+### Query 1: LEFT JOIN + GROUP BY
+
+```sql
+SELECT dg.id, dg.state
+FROM distribution_group dg
+JOIN distribution_group_matching dgm ON dgm.distribution_group_id = dg.id
+LEFT JOIN skill s ON dgm.type = 'SKILL_CODE' AND dgm.pointer = s.code
+LEFT JOIN account a ON dgm.type = 'ACCOUNT_ID' AND dgm.pointer = CAST(a.id AS TEXT)
+LEFT JOIN account_group ag ON dgm.type = 'ACCOUNT_GROUP_ID' AND dgm.pointer = CAST(ag.id AS TEXT)
+WHERE dg.state = 'WAITING'
+  AND (s.id IS NOT NULL OR a.id IS NOT NULL OR ag.id IS NOT NULL)
+GROUP BY dg.id, dg.state
+ORDER BY dg.id
+LIMIT 100 OFFSET 0;
+```
+
+### Query 2: UNION ALL
+
+```sql
+SELECT dg.id, dg.state FROM distribution_group dg
+JOIN distribution_group_matching dgm ON dgm.distribution_group_id = dg.id
+JOIN skill s ON dgm.type = 'SKILL_CODE' AND dgm.pointer = s.code
+WHERE dg.state = 'WAITING'
+
+UNION ALL
+
+SELECT dg.id, dg.state FROM distribution_group dg
+JOIN distribution_group_matching dgm ON dgm.distribution_group_id = dg.id
+JOIN account a ON dgm.type = 'ACCOUNT_ID' AND dgm.pointer = CAST(a.id AS TEXT)
+WHERE dg.state = 'WAITING'
+
+UNION ALL
+
+SELECT dg.id, dg.state FROM distribution_group dg
+JOIN distribution_group_matching dgm ON dgm.distribution_group_id = dg.id
+JOIN account_group ag ON dgm.type = 'ACCOUNT_GROUP_ID' AND dgm.pointer = CAST(ag.id AS TEXT)
+WHERE dg.state = 'WAITING'
+
+ORDER BY id
+LIMIT 100 OFFSET 0;
+```
+
+## Performance Results
+
+| Query | 1M Records | 10M Records |
+|-------|------------|-------------|
+| LEFT JOIN + GROUP BY | 1834 ms | 704 ms |
+| UNION ALL | 557 ms | 5722 ms |
+
+**With 1M records**: UNION ALL is ~3x faster
+**With 10M records**: LEFT JOIN is ~8x faster
+
+## EXPLAIN ANALYZE Results
+
+### Query 1: LEFT JOIN + GROUP BY (73 ms with warm cache)
+
+```
+Limit (actual time=66..71 ms, rows=100)
+  -> Group (rows=100)
+       -> Nested Loop Left Join (account_group)
+             -> Nested Loop Left Join (account)
+                   -> Nested Loop Left Join (skill)
+                         -> Merge Join (dg + dgm)
+                               +-- Gather Merge (dgm) <- Parallel scan + sort
+                               +-- Index Scan (dg) <- Uses PRIMARY KEY index
+```
+
+Key points:
+- `Index Scan on distribution_group_pkey`: Uses index, only reads 100 rows needed
+- `Merge Join`: Efficiently joins sorted data
+- `Nested Loop Left Join`: Small tables (100 accounts, 20 groups, 50 skills) - fast
+- `Limit` pushed down: Stops early after finding 100 rows
+
+### Query 2: UNION ALL (509 ms with warm cache)
+
+```
+Limit (actual time=501..508 ms, rows=100)
+  -> Gather Merge (sort results from workers)
+       -> Sort (ORDER BY id)
+             -> Parallel Append (combines 3 sub-queries)
+                   +-- Hash Join: dg + dgm + account_group (111k rows each worker)
+                   +-- Hash Join: dg + dgm + account (166k rows each worker)
+                   +-- Hash Join: dg + dgm + skill (333k rows)
+```
+
+Key points:
+- `Parallel Seq Scan on distribution_group`: Scans 3 times (once per sub-query)
+- `Parallel Seq Scan on distribution_group_matching`: Scans 3 times with filter
+- `Rows Removed by Filter: 666667`: Each sub-query filters 2/3 of matching table
+- `Sort` after append: Must collect all 1M rows before sorting
+- `Limit` NOT pushed down: Can't limit until after UNION ALL + ORDER BY
+
+## Key Differences
+
+| Factor | Query 1 (LEFT JOIN) | Query 2 (UNION ALL) |
+|--------|---------------------|---------------------|
+| Table scans | 1x each table | 3x distribution_group, 3x matching |
+| Can use LIMIT early | Yes | No (must sort first) |
+| Parallelism | Limited | Good |
+| Index usage | Uses PK index | Hash joins only |
+
+## Why Results Differ by Data Size
+
+**At 1M rows (UNION ALL faster):**
+- Parallel execution benefits outweigh triple scanning
+- Data fits better in memory
+- Hash joins are efficient at this scale
+
+**At 10M rows (LEFT JOIN faster):**
+- Triple table scans become very expensive (30M + 30M row reads)
+- Sorting 10M combined results before LIMIT is costly
+- Index-based approach scales better
+- Memory pressure increases with larger hash tables
