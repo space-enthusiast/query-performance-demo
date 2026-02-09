@@ -26,6 +26,7 @@ dependencies {
 	runtimeOnly("org.postgresql:postgresql")
 	testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
 	testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
+	testImplementation("org.jfree:jfreechart:1.5.5")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

@@ -1,9 +1,14 @@
 package com.example.query_performance_demo
 
+import org.jfree.chart.ChartFactory
+import org.jfree.chart.ChartUtils
+import org.jfree.chart.plot.PlotOrientation
+import org.jfree.data.category.DefaultCategoryDataset
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.jdbc.core.JdbcTemplate
+import java.io.File
 
 @SpringBootTest
 class QueryPerformanceTest {
@@ -105,5 +110,35 @@ class QueryPerformanceTest {
         println("Query 2 (UNION ALL) avg: ${fastTimes.average()} ms")
         println("Difference: ${slowTimes.average() - fastTimes.average()} ms")
         println("=".repeat(80) + "\n")
+
+        // Generate chart with JFreeChart
+        generatePerformanceChart(slowTimes, fastTimes)
+    }
+
+    private fun generatePerformanceChart(slowTimes: List<Long>, fastTimes: List<Long>) {
+        val dataset = DefaultCategoryDataset().apply {
+            slowTimes.forEachIndexed { index, time ->
+                addValue(time, "LEFT JOIN + GROUP BY", "Run ${index + 1}")
+            }
+            fastTimes.forEachIndexed { index, time ->
+                addValue(time, "UNION ALL", "Run ${index + 1}")
+            }
+        }
+
+        val chart = ChartFactory.createLineChart(
+            "Query Performance Comparison",  // title
+            "Execution Run",                 // x-axis label
+            "Time (ms)",                     // y-axis label
+            dataset,
+            PlotOrientation.VERTICAL,
+            true,                            // legend
+            true,                            // tooltips
+            false                            // urls
+        )
+
+        // Save chart as PNG
+        val outputFile = File("build/query-performance-chart.png")
+        ChartUtils.saveChartAsPNG(outputFile, chart, 800, 600)
+        println("Chart saved to: ${outputFile.absolutePath}")
     }
 }
