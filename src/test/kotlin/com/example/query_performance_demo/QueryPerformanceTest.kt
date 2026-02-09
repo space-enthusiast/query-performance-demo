@@ -85,7 +85,7 @@ class QueryPerformanceTest {
     @Test
     fun `compare query performance - 3 scenarios`() {
         println("\n" + "=".repeat(80))
-        println("QUERY PERFORMANCE COMPARISON (5M Records)")
+        println("QUERY PERFORMANCE COMPARISON (1M Records)")
         println("=".repeat(80))
 
         // Scenario 1: LEFT JOIN + GROUP BY (No indexes)
@@ -160,7 +160,7 @@ class QueryPerformanceTest {
         }
 
         val chart = ChartFactory.createBoxAndWhiskerChart(
-            "Query Performance Comparison (5M Records)",  // title
+            "Query Performance Comparison (1M Records)",  // title
             "Query Strategy",                             // x-axis label
             "Time (ms)",                                  // y-axis label
             dataset,
