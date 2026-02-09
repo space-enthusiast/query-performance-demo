@@ -200,9 +200,83 @@ Key points:
 **Total Improvement (Scenario 1 → 3)**:
 - UNION ALL → LEFT JOIN + Index: 2,543 ms → 1.8 ms (**~1,413x faster**)
 
+## Load Test Results
+
+Slow queries don't just affect individual requests - they can crash your entire system.
+
+### Test Environment
+
+```
+HikariCP max-pool-size: 50
+Tomcat max-threads: 200
+Test tool: Locust
+```
+
+### Test Results
+
+| Scenario | Users | Requests | Failure Rate | Avg Response | Req/s |
+|----------|-------|----------|--------------|--------------|-------|
+| Fast Only (2ms query) | 500 | 56,575 | **0%** | 11ms | 945 |
+| Slow Only (2.5s query) | 100 | 4,178 | **98.56%** | 637ms | 1.6 |
+
+### What Happened with Slow Queries?
+
+With only **100 concurrent users** hitting the slow endpoint:
+
+```
+Error breakdown:
+- ConnectionRefusedError: 4,094 (server stopped accepting connections)
+- 500 Server Error: 20 (DB connection pool exhausted)
+- RemoteDisconnected: 4 (connection dropped)
+
+Total: 98.56% failure rate
+```
+
+**The server completely collapsed.**
+
+### Why Does This Happen?
+
+```
+DB Connection Pool Math:
+- Pool size: 50 connections
+- Query time: 2.5 seconds
+- Max throughput: 50 / 2.5 = 20 requests/second
+
+With 100 users sending requests:
+- 80 users wait for connections
+- Connection timeout (30s) triggers
+- Requests pile up
+- Server becomes unresponsive
+- Even new connections get refused
+```
+
+### Fast vs Slow Comparison
+
+| Metric | Fast (2ms) | Slow (2.5s) | Difference |
+|--------|------------|-------------|------------|
+| Throughput | 945 req/s | 1.6 req/s | **590x** |
+| Failure Rate | 0% | 98.56% | - |
+| Max Concurrent | 500+ | ~20 | **25x** |
+| System Status | Stable | Crashed | - |
+
+### Run Load Tests
+
+```bash
+# Full automated pipeline
+./load_test.sh run
+
+# Individual scenarios
+./load_test.sh fast    # Test optimized endpoint
+./load_test.sh slow    # Test slow endpoint (will crash)
+./load_test.sh web     # Interactive Web UI
+```
+
+Results saved to `build/load-test-results/`
+
 ## Conclusion
 
 For paginated queries with `ORDER BY ... LIMIT ... OFFSET`:
 1. **LEFT JOIN + GROUP BY** is the better query strategy (vs UNION ALL)
 2. **Proper indexes** provide the biggest performance gain (~199x improvement)
 3. The combination of good query structure + indexes achieves sub-2ms response times on 5M records
+4. **Slow queries can crash your entire system** - a 2.5s query with 100 users caused 98.56% failure rate
