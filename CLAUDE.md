@@ -17,15 +17,15 @@ Implemented Query Performance Optimization plan comparing 3 scenarios with 5M re
    - Added data loading for both table sets
 
 3. **QueryPerformanceTest.kt** - 3 test scenarios:
-   - Scenario 1: LEFT JOIN + GROUP BY (No indexes) - ~358 ms
-   - Scenario 2: UNION ALL (No indexes) - ~2,543 ms
+   - Scenario 1: UNION ALL (No indexes) - ~2,543 ms
+   - Scenario 2: LEFT JOIN + GROUP BY (No indexes) - ~358 ms
    - Scenario 3: LEFT JOIN + GROUP BY + Index (_2 tables) - ~1.8 ms
 
 ### Execution Results
 - Data loading: ~240 seconds for 5M records
 - Test execution: ~5 minutes
 - Chart generated: `build/query-performance-chart.png`
-- Key finding: Indexes provide **~199x improvement** for LEFT JOIN strategy
+- Key finding: Total improvement **~1,413x** (Scenario 1 → 3)
 
 ### Commands
 ```bash

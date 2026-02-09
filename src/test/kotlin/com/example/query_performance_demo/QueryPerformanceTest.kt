@@ -21,24 +21,7 @@ class QueryPerformanceTest {
         const val ITERATIONS = 20
 
         // ============================================================================
-        // Scenario 1: LEFT JOIN + GROUP BY (Set 1 - No indexes)
-        // ============================================================================
-        val QUERY_LEFT_JOIN = """
-            SELECT dg.id, dg.state
-            FROM distribution_group dg
-            JOIN distribution_group_matching dgm ON dgm.distribution_group_id = dg.id
-            LEFT JOIN skill s ON dgm.type = 'SKILL_CODE' AND dgm.pointer = s.code
-            LEFT JOIN account a ON dgm.type = 'ACCOUNT_ID' AND dgm.pointer = CAST(a.id AS TEXT)
-            LEFT JOIN account_group ag ON dgm.type = 'ACCOUNT_GROUP_ID' AND dgm.pointer = CAST(ag.id AS TEXT)
-            WHERE dg.state = 'WAITING'
-              AND (s.id IS NOT NULL OR a.id IS NOT NULL OR ag.id IS NOT NULL)
-            GROUP BY dg.id, dg.state
-            ORDER BY dg.id
-            LIMIT ? OFFSET ?
-        """.trimIndent()
-
-        // ============================================================================
-        // Scenario 2: UNION ALL (Set 1 - No indexes)
+        // Scenario 1: UNION ALL (Set 1 - No indexes)
         // ============================================================================
         val QUERY_UNION_ALL = """
             SELECT dg.id, dg.state FROM distribution_group dg
@@ -61,6 +44,23 @@ class QueryPerformanceTest {
             WHERE dg.state = 'WAITING'
 
             ORDER BY id
+            LIMIT ? OFFSET ?
+        """.trimIndent()
+
+        // ============================================================================
+        // Scenario 2: LEFT JOIN + GROUP BY (Set 1 - No indexes)
+        // ============================================================================
+        val QUERY_LEFT_JOIN = """
+            SELECT dg.id, dg.state
+            FROM distribution_group dg
+            JOIN distribution_group_matching dgm ON dgm.distribution_group_id = dg.id
+            LEFT JOIN skill s ON dgm.type = 'SKILL_CODE' AND dgm.pointer = s.code
+            LEFT JOIN account a ON dgm.type = 'ACCOUNT_ID' AND dgm.pointer = CAST(a.id AS TEXT)
+            LEFT JOIN account_group ag ON dgm.type = 'ACCOUNT_GROUP_ID' AND dgm.pointer = CAST(ag.id AS TEXT)
+            WHERE dg.state = 'WAITING'
+              AND (s.id IS NOT NULL OR a.id IS NOT NULL OR ag.id IS NOT NULL)
+            GROUP BY dg.id, dg.state
+            ORDER BY dg.id
             LIMIT ? OFFSET ?
         """.trimIndent()
 
@@ -88,21 +88,21 @@ class QueryPerformanceTest {
         println("QUERY PERFORMANCE COMPARISON (5M Records)")
         println("=".repeat(80))
 
-        // Scenario 1: LEFT JOIN + GROUP BY (No indexes)
-        println("\n>>> SCENARIO 1: LEFT JOIN + GROUP BY (No indexes)")
-        println("-".repeat(80))
-        println(QUERY_LEFT_JOIN)
-        println("-".repeat(80))
-
-        val leftJoinTimes = measureQueryPerformance(QUERY_LEFT_JOIN, "Scenario 1")
-
-        // Scenario 2: UNION ALL (No indexes)
-        println("\n>>> SCENARIO 2: UNION ALL (No indexes)")
+        // Scenario 1: UNION ALL (No indexes)
+        println("\n>>> SCENARIO 1: UNION ALL (No indexes)")
         println("-".repeat(80))
         println(QUERY_UNION_ALL)
         println("-".repeat(80))
 
-        val unionAllTimes = measureQueryPerformance(QUERY_UNION_ALL, "Scenario 2")
+        val unionAllTimes = measureQueryPerformance(QUERY_UNION_ALL, "Scenario 1")
+
+        // Scenario 2: LEFT JOIN + GROUP BY (No indexes)
+        println("\n>>> SCENARIO 2: LEFT JOIN + GROUP BY (No indexes)")
+        println("-".repeat(80))
+        println(QUERY_LEFT_JOIN)
+        println("-".repeat(80))
+
+        val leftJoinTimes = measureQueryPerformance(QUERY_LEFT_JOIN, "Scenario 2")
 
         // Scenario 3: LEFT JOIN + GROUP BY + Index
         println("\n>>> SCENARIO 3: LEFT JOIN + GROUP BY + Index")
@@ -116,14 +116,14 @@ class QueryPerformanceTest {
         println("\n" + "=".repeat(80))
         println("SUMMARY")
         println("=".repeat(80))
-        println("Scenario 1 (LEFT JOIN + GROUP BY, No indexes) avg: ${leftJoinTimes.average()} ms")
-        println("Scenario 2 (UNION ALL, No indexes) avg: ${unionAllTimes.average()} ms")
+        println("Scenario 1 (UNION ALL, No indexes) avg: ${unionAllTimes.average()} ms")
+        println("Scenario 2 (LEFT JOIN + GROUP BY, No indexes) avg: ${leftJoinTimes.average()} ms")
         println("Scenario 3 (LEFT JOIN + GROUP BY + Index) avg: ${leftJoinIndexedTimes.average()} ms")
         println("-".repeat(80))
 
-        val improvement1to2 = leftJoinTimes.average() / unionAllTimes.average()
-        val improvement2to3 = unionAllTimes.average() / leftJoinIndexedTimes.average()
-        val improvement1to3 = leftJoinTimes.average() / leftJoinIndexedTimes.average()
+        val improvement1to2 = unionAllTimes.average() / leftJoinTimes.average()
+        val improvement2to3 = leftJoinTimes.average() / leftJoinIndexedTimes.average()
+        val improvement1to3 = unionAllTimes.average() / leftJoinIndexedTimes.average()
 
         println("Improvement (Scenario 1 → 2): %.2fx faster".format(improvement1to2))
         println("Improvement (Scenario 2 → 3): %.2fx faster".format(improvement2to3))
@@ -131,7 +131,7 @@ class QueryPerformanceTest {
         println("=".repeat(80) + "\n")
 
         // Generate chart
-        generatePerformanceChart(leftJoinTimes, unionAllTimes, leftJoinIndexedTimes)
+        generatePerformanceChart(unionAllTimes, leftJoinTimes, leftJoinIndexedTimes)
     }
 
     private fun measureQueryPerformance(query: String, scenario: String): List<Long> {
@@ -149,13 +149,13 @@ class QueryPerformanceTest {
     }
 
     private fun generatePerformanceChart(
-        leftJoinTimes: List<Long>,
         unionAllTimes: List<Long>,
+        leftJoinTimes: List<Long>,
         leftJoinIndexedTimes: List<Long>
     ) {
         val dataset = DefaultBoxAndWhiskerCategoryDataset().apply {
-            add(leftJoinTimes.map { it.toDouble() }, "Query Type", "LEFT JOIN\n(No Index)")
             add(unionAllTimes.map { it.toDouble() }, "Query Type", "UNION ALL\n(No Index)")
+            add(leftJoinTimes.map { it.toDouble() }, "Query Type", "LEFT JOIN\n(No Index)")
             add(leftJoinIndexedTimes.map { it.toDouble() }, "Query Type", "LEFT JOIN\n(+ Index)")
         }
 
