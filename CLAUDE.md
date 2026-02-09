@@ -35,5 +35,11 @@ Implemented Query Performance Optimization plan comparing 3 scenarios with 5M re
 ./gradlew test --tests "QueryPerformanceTest"
 ```
 
-### Pending
-- README update with detailed performance numbers
+### Completed
+- README updated with:
+  - 5M records test data
+  - 3 scenarios with SQL queries
+  - Performance results table
+  - Chart reference
+  - Updated EXPLAIN ANALYZE sections
+  - Key differences and conclusion
